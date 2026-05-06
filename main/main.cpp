@@ -505,10 +505,15 @@ static esp_err_t handle_config_post(httpd_req_t *req)
     const char *ssid = si->valuestring;
     cJSON *pi = cJSON_GetObjectItem(doc, "password");
     const char *pass = cJSON_IsString(pi) ? pi->valuestring : "";
+
+    // 先拷贝到本地缓冲区，再释放 cJSON（否则 ssid/pass 变成悬空指针）
+    char local_ssid[64] = {}, local_pass[64] = {};
+    strlcpy(local_ssid, ssid, sizeof(local_ssid));
+    strlcpy(local_pass, pass, sizeof(local_pass));
     cJSON_Delete(doc);
 
-    ESP_LOGI(TAG, "Config: SSID=%s", ssid);
-    save_config(ssid, pass);
+    ESP_LOGI(TAG, "Config: SSID=%s", local_ssid);
+    save_config(local_ssid, local_pass);
 
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "{\"status\":\"ok\",\"rebooting\":true}");
