@@ -75,8 +75,11 @@ static int64_t s_ap_start_us = 0;
 static rmt_channel_handle_t s_led_chan = NULL;
 static rmt_encoder_handle_t s_led_encoder = NULL;
 
-static char s_saved_ssid[64] = "";
-static char s_saved_pass[64] = "";
+#define DEFAULT_SSID "esp32"
+#define DEFAULT_PASS "123456789012"
+
+static char s_saved_ssid[64] = DEFAULT_SSID;
+static char s_saved_pass[64] = DEFAULT_PASS;
 
 // ================================================================
 //  WS2812 LED 控制 (RMT)
@@ -185,29 +188,27 @@ static bool load_config(void)
 {
     nvs_handle_t nvs;
     if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs) != ESP_OK)
-        return false;
+        return true;  // 用默认值（编译时硬编码）
 
     size_t len = sizeof(s_saved_ssid);
     esp_err_t err = nvs_get_str(nvs, "ssid", s_saved_ssid, &len);
     if (err != ESP_OK) {
         nvs_close(nvs);
-        return false;
+        return true;  // NVS 无数据，使用默认值
     }
     len = sizeof(s_saved_pass);
     err = nvs_get_str(nvs, "pass", s_saved_pass, &len);
-    if (err != ESP_OK) {
-        nvs_close(nvs);
-        return false;
-    }
     nvs_close(nvs);
+    if (err != ESP_OK) s_saved_pass[0] = '\0';
 
     if (!ssid_is_valid(s_saved_ssid)) {
-        ESP_LOGW(TAG, "Stored SSID invalid (corrupted?), clearing config");
+        ESP_LOGW(TAG, "Stored SSID invalid, using default");
         clear_config();
-        return false;
+        strlcpy(s_saved_ssid, DEFAULT_SSID, sizeof(s_saved_ssid));
+        strlcpy(s_saved_pass, DEFAULT_PASS, sizeof(s_saved_pass));
     }
 
-    ESP_LOGI(TAG, "Loaded SSID=%s", s_saved_ssid);
+    ESP_LOGI(TAG, "Using SSID=%s", s_saved_ssid);
     return true;
 }
 
