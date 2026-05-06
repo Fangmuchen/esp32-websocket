@@ -277,50 +277,6 @@ static void start_ap_mode(void)
 }
 
 // ================================================================
-//  WiFi 扫描（HTTP handler 中同步调用）
-// ================================================================
-
-static cJSON *scan_networks(void)
-{
-    wifi_scan_config_t sc = {};
-    sc.scan_type = WIFI_SCAN_TYPE_ACTIVE;
-    sc.scan_time.active.min = 120;
-    sc.scan_time.active.max = 300;
-
-    esp_err_t err = esp_wifi_scan_start(&sc, true);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "scan failed: %s", esp_err_to_name(err));
-        return cJSON_CreateArray();
-    }
-
-    uint16_t cnt = 0;
-    err = esp_wifi_scan_get_ap_num(&cnt);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "scan get_ap_num failed: %s", esp_err_to_name(err));
-        return cJSON_CreateArray();
-    }
-
-    ESP_LOGI(TAG, "scan found %d APs", cnt);
-
-    cJSON *arr = cJSON_CreateArray();
-    if (cnt == 0) return arr;
-
-    wifi_ap_record_t *rec = (wifi_ap_record_t *)calloc(cnt, sizeof(*rec));
-    if (!rec) return arr;
-
-    esp_wifi_scan_get_ap_records(&cnt, rec);
-    for (uint16_t i = 0; i < cnt; i++) {
-        cJSON *n = cJSON_CreateObject();
-        cJSON_AddStringToObject(n, "ssid", (char *)rec[i].ssid);
-        cJSON_AddNumberToObject(n, "rssi", rec[i].rssi);
-        cJSON_AddBoolToObject(n, "enc", rec[i].authmode != WIFI_AUTH_OPEN);
-        cJSON_AddItemToArray(arr, n);
-    }
-    free(rec);
-    return arr;
-}
-
-// ================================================================
 //  DNS Server (Captive Portal) — 将所有域名解析到 192.168.4.1
 // ================================================================
 
@@ -415,6 +371,7 @@ static void start_dns_server(void)
 // ================================================================
 
 // HTML 前半部分（不含 JS，不含 AP 名称——AP 名由 JS 从 /api/status 获取）
+// HTML：手动输入 SSID + 密码的配网界面
 static const char s_html_pre[] =
     "<!DOCTYPE html><html lang='zh-CN'><head>"
     "<meta charset='UTF-8'>"
@@ -423,90 +380,42 @@ static const char s_html_pre[] =
     "<style>"
     "*{margin:0;padding:0;box-sizing:border-box}"
     "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;"
-    "background:#f5f5f7;color:#1d1d1f;padding:20px;max-width:420px;margin:0 auto}"
+    "background:#f5f5f7;color:#1d1d1f;padding:20px;max-width:400px;margin:0 auto}"
     "h1{font-size:22px;font-weight:600;text-align:center;margin:18px 0 4px}"
     ".sub{text-align:center;font-size:13px;color:#86868b;margin-bottom:20px}"
-    ".card{background:#fff;border-radius:12px;padding:16px;margin-bottom:12px;"
+    ".card{background:#fff;border-radius:12px;padding:16px 16px 8px;margin-bottom:12px;"
     "box-shadow:0 1px 3px rgba(0,0,0,.08)}"
-    ".ssid-item{display:flex;align-items:center;padding:10px 8px;"
-    "border-bottom:1px solid #e8e8ed;cursor:pointer}"
-    ".ssid-item:last-child{border-bottom:none}"
-    ".ssid-item.selected{background:#e8f0fe;border-radius:8px;margin:2px 0}"
-    ".ssid-item .name{flex:1;font-size:15px;font-weight:500;overflow:hidden;"
-    "text-overflow:ellipsis;white-space:nowrap}"
-    ".ssid-item .rssi{font-size:12px;color:#86868b;margin-left:8px}"
-    ".lock-icon{margin-right:8px}"
-    ".form-group{margin-top:16px}"
-    ".form-group label{font-size:14px;font-weight:500;margin-bottom:6px;display:block}"
-    ".form-group input{width:100%;padding:10px 12px;border:1px solid #d2d2d7;"
+    ".fg{margin-bottom:14px}"
+    ".fg label{font-size:14px;font-weight:500;display:block;margin-bottom:5px}"
+    ".fg input{width:100%;padding:10px 12px;border:1px solid #d2d2d7;"
     "border-radius:8px;font-size:15px;outline:none;box-sizing:border-box}"
-    ".form-group input:focus{border-color:#007aff}"
+    ".fg input:focus{border-color:#007aff}"
     ".btn{width:100%;padding:12px;background:#007aff;color:#fff;border:none;"
-    "border-radius:8px;font-size:16px;font-weight:500;cursor:pointer;margin-top:14px}"
+    "border-radius:8px;font-size:16px;font-weight:500;cursor:pointer;margin-top:4px}"
     ".btn:disabled{opacity:.4;cursor:not-allowed}"
     ".msg{padding:10px;border-radius:8px;margin:0 0 12px;font-size:14px;text-align:center}"
     ".msg.ok{background:#e8f5e9;color:#2e7d32}"
     ".msg.err{background:#fce4ec;color:#c62828}"
-    "#list{max-height:320px;overflow-y:auto}"
-    ".sp{display:inline-block;width:14px;height:14px;border:2px solid #e8e8ed;"
-    "border-top-color:#007aff;border-radius:50%;animation:s .6s linear infinite;"
-    "vertical-align:middle;margin-right:4px}"
-    "@keyframes s{to{transform:rotate(360deg)}}"
     "</style></head><body>"
     "<h1>ESP32 LED 配网</h1>"
     "<p class='sub' id='apname'></p><div id='msg'></div>"
     "<div class='card'>"
-    "<div style='display:flex;justify-content:space-between;"
-    "align-items:center;margin-bottom:8px'>"
-    "<strong>WiFi 网络</strong>"
-    "<button onclick='scan()' style='background:none;border:none;color:#007aff;"
-    "font-size:14px;cursor:pointer'>刷新</button></div>"
-    "<div id='list'><p style='color:#86868b;text-align:center;padding:20px' "
-    "id='scanstatus'><span class=sp></span>正在扫描...</p></div></div>"
-    "<div class='card' id='cfgcard' style='display:none'>"
-    "<div class='form-group'><label id='selabel'></label>"
-    "<input type='password' id='pwd' placeholder='WiFi 密码（留空无密码）'>"
+    "<div class='fg'><label>WiFi 名称</label>"
+    "<input type='text' id='ssid' placeholder='请填写手机当前连接的WiFi名称'>"
+    "</div><div class='fg'><label>WiFi 密码</label>"
+    "<input type='password' id='pwd' placeholder='留空表示无密码'>"
     "</div><button class='btn' id='connbtn' onclick='conn()'>连接 WiFi</button></div>"
 ;
 
-// HTML 后半部分（JS 逻辑，无 ES6 语法兼容旧手机浏览器）
 static const char s_html_post[] =
     "<script>"
-    "var sel='',sc=false;"
+    "function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')"
+    ".replace(/>/g,'&gt;').replace(/\"/g,'&quot;')}"
     "function m(t,c){document.getElementById('msg').innerHTML="
     "'<div class=msg '+c+'>'+t+'</div>';"
     "if(c!='err')setTimeout(function(){document.getElementById('msg').innerHTML=''},5000)}"
-    "function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')"
-    ".replace(/>/g,'&gt;').replace(/\"/g,'&quot;')}"
-    "async function scan(){if(sc)return;sc=true;"
-    "document.getElementById('scanstatus').innerHTML="
-    "'<span class=sp></span>正在扫描...';"
-    "var l=document.getElementById('list');"
-    "var ac=new AbortController();"
-    "setTimeout(function(){ac.abort()},8000);"
-    "try{var r=await fetch('/api/scan',{signal:ac.signal});"
-    "var n=await r.json();"
-    "if(!n||n.length===0){l.innerHTML="
-    "'<p style=color:#86868b;text-align:center;padding:20px>未扫描到WiFi网络</p>';return}"
-    "n.sort(function(a,b){return b.rssi-a.rssi});"
-    "var u=[],h={};n.forEach(function(x){if(!h[x.ssid]){h[x.ssid]=1;u.push(x)}});"
-    "l.innerHTML=u.map(function(x){var lk=x.enc?'&#x1F512;':'&#x1F310;';"
-    "var ba=x.rssi>-50?'&#x2581;&#x2581;&#x2581;&#x2581;':"
-    "x.rssi>-65?'&#x2581;&#x2581;&#x2581;':"
-    "x.rssi>-80?'&#x2581;&#x2581;':'&#x2581;';"
-    "return '<div class=ssid-item data-ssid=\\\"'+esc(x.ssid)+'\\\" onclick=sel(this)>'"
-    "+lk+'<span class=name>'+esc(x.ssid)+'</span>"
-    "+'<span class=rssi>'+ba+' '+x.rssi+'dBm</span></div>'}).join('')"
-    "}catch(e){l.innerHTML="
-    "'<p style=color:#c62828;text-align:center;padding:20px>扫描失败或超时，请刷新重试</p>'}"
-    "sc=false}"
-    "function sel(el){document.querySelectorAll('.ssid-item').forEach("
-    "function(e){e.classList.remove('selected')});el.classList.add('selected');"
-    "sel=el.dataset.ssid;"
-    "document.getElementById('selabel').textContent='\\u5df2\\u9009: '+sel;"
-    "document.getElementById('cfgcard').style.display='block';"
-    "setTimeout(function(){document.getElementById('pwd').focus()},300)}"
-    "async function conn(){var s=sel;if(!s)return m('\\u8bf7\\u5148\\u9009\\u62e9WiFi\\u7f51\\u7edc','err');"
+    "async function conn(){"
+    "var s=document.getElementById('ssid').value.trim();if(!s)return m('\\u8bf7\\u586b\\u5199WiFi\\u540d\\u79f0','err');"
     "var p=document.getElementById('pwd').value;"
     "var b=document.getElementById('connbtn');b.disabled=true;b.textContent='\\u8fde\\u63a5\\u4e2d...';"
     "try{await fetch('/api/config',{method:'POST',"
@@ -518,7 +427,6 @@ static const char s_html_post[] =
     "fetch('/api/status').then(function(r){return r.json()})"
     ".then(function(d){document.getElementById('apname').textContent='AP: '+d.ap})"
     ".catch(function(){document.getElementById('apname').textContent='AP: ESP32-LED'});"
-    "scan();"
     "</script></body></html>";
 
 static esp_err_t handle_root(httpd_req_t *req)
@@ -581,17 +489,6 @@ static esp_err_t handle_config_post(httpd_req_t *req)
     return ESP_OK;
 }
 
-static esp_err_t handle_scan(httpd_req_t *req)
-{
-    cJSON *arr = scan_networks();
-    char *json = cJSON_PrintUnformatted(arr);
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr(req, json);
-    free(json);
-    cJSON_Delete(arr);
-    return ESP_OK;
-}
-
 static esp_err_t handle_404(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "text/html; charset=utf-8");
@@ -628,8 +525,6 @@ static void start_http_server(void)
     hu = (httpd_uri_t){ .uri = "/api/status", .method = HTTP_GET, .handler = handle_status, .user_ctx = NULL };
     httpd_register_uri_handler(s_http_server, &hu);
     hu = (httpd_uri_t){ .uri = "/api/config", .method = HTTP_POST, .handler = handle_config_post, .user_ctx = NULL };
-    httpd_register_uri_handler(s_http_server, &hu);
-    hu = (httpd_uri_t){ .uri = "/api/scan", .method = HTTP_GET, .handler = handle_scan, .user_ctx = NULL };
     httpd_register_uri_handler(s_http_server, &hu);
     hu = (httpd_uri_t){ .uri = "/*", .method = HTTP_GET, .handler = handle_404, .user_ctx = NULL };
     httpd_register_uri_handler(s_http_server, &hu);
