@@ -149,16 +149,36 @@ static void blink_led(int count, int delay_ms)
 //  NVS 配置读写
 // ================================================================
 
+static bool ssid_is_valid(const char *ssid)
+{
+    if (!ssid || ssid[0] == '\0') return false;
+    size_t len = strnlen(ssid, 33);
+    if (len > 32) return false;
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)ssid[i];
+        if (c < 0x20 || c > 0x7e) return false;  // 非打印 ASCII
+    }
+    return true;
+}
+
+static bool ssid_is_valid(const char *ssid);
+static void clear_config(void);
+
 static void save_config(const char *ssid, const char *pass)
 {
     nvs_handle_t nvs;
-    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs) != ESP_OK)
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs) != ESP_OK) {
+        ESP_LOGE(TAG, "NVS open for write failed");
         return;
-    nvs_set_str(nvs, "ssid", ssid);
-    nvs_set_str(nvs, "pass", pass);
-    nvs_commit(nvs);
+    }
+    if (nvs_set_str(nvs, "ssid", ssid) != ESP_OK ||
+        nvs_set_str(nvs, "pass", pass) != ESP_OK ||
+        nvs_commit(nvs) != ESP_OK) {
+        ESP_LOGE(TAG, "NVS write failed");
+    } else {
+        ESP_LOGI(TAG, "WiFi config saved (SSID=%s)", ssid);
+    }
     nvs_close(nvs);
-    ESP_LOGI(TAG, "WiFi config saved");
 }
 
 static bool load_config(void)
@@ -168,16 +188,25 @@ static bool load_config(void)
         return false;
 
     size_t len = sizeof(s_saved_ssid);
-    if (nvs_get_str(nvs, "ssid", s_saved_ssid, &len) != ESP_OK) {
+    esp_err_t err = nvs_get_str(nvs, "ssid", s_saved_ssid, &len);
+    if (err != ESP_OK) {
         nvs_close(nvs);
         return false;
     }
     len = sizeof(s_saved_pass);
-    if (nvs_get_str(nvs, "pass", s_saved_pass, &len) != ESP_OK) {
+    err = nvs_get_str(nvs, "pass", s_saved_pass, &len);
+    if (err != ESP_OK) {
         nvs_close(nvs);
         return false;
     }
     nvs_close(nvs);
+
+    if (!ssid_is_valid(s_saved_ssid)) {
+        ESP_LOGW(TAG, "Stored SSID invalid (corrupted?), clearing config");
+        clear_config();
+        return false;
+    }
+
     ESP_LOGI(TAG, "Loaded SSID=%s", s_saved_ssid);
     return true;
 }
