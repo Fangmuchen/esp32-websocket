@@ -1,0 +1,9 @@
+build/
+sdkconfig
+sdkconfig.old
+*.bin
+*.elf
+*.idx
+.cache/
+.vscode/
+.claude/
