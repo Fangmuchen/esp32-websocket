@@ -601,14 +601,13 @@ static esp_err_t handle_404(httpd_req_t *req)
     return ESP_OK;
 }
 
-// 处理 CONNECT 请求（微信 mmtls 隧道探测等），尽快关闭避免耗尽连接池
-static esp_err_t handle_connect(httpd_req_t *req)
+// 拒绝所有非配网必需的请求（CONNECT/POST/PUT/DELETE 等），快速关闭释放 socket
+static esp_err_t handle_deny(httpd_req_t *req)
 {
-    ESP_LOGD(TAG, "CONNECT %s → 405 close", req->uri);
     httpd_resp_set_status(req, "405 Method Not Allowed");
     httpd_resp_set_hdr(req, "Connection", "close");
     httpd_resp_sendstr(req, "");
-    return ESP_FAIL;  // 强制关闭连接
+    return ESP_FAIL;  // 返回失败促使服务器关闭连接
 }
 
 static void start_http_server(void)
@@ -634,8 +633,8 @@ static void start_http_server(void)
     httpd_register_uri_handler(s_http_server, &hu);
     hu = (httpd_uri_t){ .uri = "/*", .method = HTTP_GET, .handler = handle_404, .user_ctx = NULL };
     httpd_register_uri_handler(s_http_server, &hu);
-    // CONNECT 方法（微信 mmtls/HTTP 方法3）→ 立即关闭释放 socket，防止耗尽连接池
-    hu = (httpd_uri_t){ .uri = "/*", .method = (httpd_method_t)3, .handler = handle_connect, .user_ctx = NULL };
+    // 所有非 GET 请求（微信 mmtls CONNECT、杂项 POST/PUT/DELETE）→ 立即关闭释放 socket
+    hu = (httpd_uri_t){ .uri = "/*", .method = (httpd_method_t)HTTP_ANY, .handler = handle_deny, .user_ctx = NULL };
     httpd_register_uri_handler(s_http_server, &hu);
 
     // 启动 DNS 服务器（捕获门户）
