@@ -1,2 +1,5 @@
 # HTTP Server: 增大请求头缓冲区以适应手机浏览器
 CONFIG_HTTPD_MAX_REQ_HDR_LEN=2048
+
+# LWIP: 增大 socket 数量（HTTP server 内部占用 3 个，max_open_sockets 不能超过 LWIP_MAX_SOCKETS-3）
+CONFIG_LWIP_MAX_SOCKETS=16

@@ -615,6 +615,8 @@ static void start_http_server(void)
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.lru_purge_enable = true;
     cfg.uri_match_fn = httpd_uri_match_wildcard;
+    cfg.max_open_sockets = 10;          // 默认 7，微信 mmtls 占用多需扩容
+    cfg.backlog_conn = 7;               // 默认 5
     if (httpd_start(&s_http_server, &cfg) != ESP_OK) {
         ESP_LOGE(TAG, "HTTP server start failed");
         return;
@@ -630,6 +632,9 @@ static void start_http_server(void)
     hu = (httpd_uri_t){ .uri = "/api/scan", .method = HTTP_GET, .handler = handle_scan, .user_ctx = NULL };
     httpd_register_uri_handler(s_http_server, &hu);
     hu = (httpd_uri_t){ .uri = "/*", .method = HTTP_GET, .handler = handle_404, .user_ctx = NULL };
+    httpd_register_uri_handler(s_http_server, &hu);
+    // CONNECT 方法（微信 mmtls/HTTP 方法3）→ 立即关闭释放 socket，防止耗尽连接池
+    hu = (httpd_uri_t){ .uri = "/*", .method = HTTP_PATCH, .handler = handle_connect, .user_ctx = NULL };
     httpd_register_uri_handler(s_http_server, &hu);
 
     // 启动 DNS 服务器（捕获门户）
