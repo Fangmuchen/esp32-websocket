@@ -41,8 +41,8 @@ static const char *TAG = "ledctrl";
 #define AP_IDLE_TIMEOUT  300000    // AP模式5分钟无配网则重启
 
 // ========== WebSocket 配置 ==========
-#define WS_HOST          "your-server.com"
-#define WS_PORT          8080
+#define WS_HOST          "124.222.6.60"
+#define WS_PORT          8800
 #define WS_PATH          "/"
 
 // ========== NVS ==========
@@ -589,6 +589,12 @@ static void ws_event_handler(void *arg, esp_event_base_t base,
         cJSON *msg = cJSON_CreateObject();
         cJSON_AddStringToObject(msg, "type", "hello");
         cJSON_AddStringToObject(msg, "device", "esp32-led");
+        uint8_t ws_mac[6];
+        esp_read_mac(ws_mac, ESP_MAC_WIFI_STA);
+        char ws_sn[24];
+        snprintf(ws_sn, sizeof(ws_sn), "ESP32-%02X%02X%02X%02X%02X%02X",
+                 ws_mac[0], ws_mac[1], ws_mac[2], ws_mac[3], ws_mac[4], ws_mac[5]);
+        cJSON_AddStringToObject(msg, "sn", ws_sn);
         char ip[16] = "0.0.0.0";
         esp_netif_ip_info_t ipi;
         esp_netif_t *ni = esp_netif_get_handle_from_ifkey("STA_DEF");
