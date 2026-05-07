@@ -1,5 +1,6 @@
 #include "device_control.h"
 #include <cstring>
+#include <cstdio>
 #include <cstdlib>
 #include "esp_log.h"
 
@@ -65,9 +66,16 @@ void control_get_audio_str(char *buf, size_t len)
 
 command_result_t control_process_command(cJSON *root)
 {
-    command_result_t res = { .processed = false, .interval_ok = false, .light_ok = true, .audio_ok = true };
+    command_result_t res;
+    memset(&res, 0, sizeof(res));
+    res.interval_ok = false;
+    res.light_ok = true;
+    res.audio_ok = true;
 
-    if (!root) return res;
+    if (!root) {
+        snprintf(res.remark, sizeof(res.remark), "null payload");
+        return res;
+    }
 
     cJSON *ti = cJSON_GetObjectItem(root, "type");
     if (!cJSON_IsString(ti)) return res;
@@ -80,14 +88,22 @@ command_result_t control_process_command(cJSON *root)
         cJSON *ln = cJSON_GetObjectItem(root, "lightNo");
         cJSON *ls = cJSON_GetObjectItem(root, "lightStatus");
         if (cJSON_IsNumber(ln) && cJSON_IsNumber(ls)) {
-            int ch = ln->valueint;       // 0-7
+            int ch = ln->valueint;
             if (ch >= 0 && ch < NUM_LIGHT_CHANNELS && (ls->valueint == 0 || ls->valueint == 1)) {
                 control_set_light(ch, ls->valueint != 0);
                 res.light_ok = true;
             } else {
                 res.light_ok = false;
-                ESP_LOGW(TAG, "Invalid light: No=%d, Status=%d", ch, ls->valueint);
+                snprintf(res.remark, sizeof(res.remark),
+                         "lightNo=%d invalid (must be 0-%d), lightStatus=%d (must be 0/1)",
+                         ch, NUM_LIGHT_CHANNELS - 1, ls->valueint);
+                ESP_LOGW(TAG, "%s", res.remark);
             }
+        } else if (cJSON_IsNumber(ln) || cJSON_IsNumber(ls)) {
+            // One of them is present but not both — partial data
+            res.light_ok = false;
+            snprintf(res.remark, sizeof(res.remark),
+                     "lightNo or lightStatus missing");
         }
 
         // —— Audio control: audioNo (0=only) + audioStatus (0/1) ——
@@ -99,9 +115,17 @@ command_result_t control_process_command(cJSON *root)
                 res.audio_ok = true;
             } else {
                 res.audio_ok = false;
-                ESP_LOGW(TAG, "Invalid audio: No=%d, Status=%d (No must be 0, Status must be 0/1)",
+                snprintf(res.remark + strlen(res.remark), sizeof(res.remark) - strlen(res.remark),
+                         "%saudioNo=%d invalid (must be 0), audioStatus=%d (must be 0/1)",
+                         strlen(res.remark) > 0 ? "; " : "",
                          an->valueint, as->valueint);
+                ESP_LOGW(TAG, "Invalid audio: No=%d, Status=%d", an->valueint, as->valueint);
             }
+        } else if (cJSON_IsNumber(an) || cJSON_IsNumber(as)) {
+            res.audio_ok = false;
+            snprintf(res.remark + strlen(res.remark), sizeof(res.remark) - strlen(res.remark),
+                     "%saudioNo or audioStatus missing",
+                     strlen(res.remark) > 0 ? "; " : "");
         }
 
         // Pool table: tableStatus (0/1)

@@ -91,6 +91,9 @@ static char *build_setting_resp_data_json(command_result_t *res)
     if (res) {
         cJSON_AddNumberToObject(d, "light", res->light_ok ? 0 : 1);
         cJSON_AddNumberToObject(d, "audio", res->audio_ok ? 0 : 1);
+        if (res->remark[0]) {
+            cJSON_AddStringToObject(d, "remark", res->remark);
+        }
     }
     char *s = cJSON_PrintUnformatted(d);
     cJSON_Delete(d);
@@ -187,6 +190,9 @@ static void send_setting_response(const char *logbn, command_result_t *res)
         cJSON_AddNumberToObject(rsp, "interval", res->interval_ok ? 0 : 1);
         cJSON_AddNumberToObject(rsp, "light", res->light_ok ? 0 : 1);
         cJSON_AddNumberToObject(rsp, "audio", res->audio_ok ? 0 : 1);
+        if (res->remark[0]) {
+            cJSON_AddStringToObject(rsp, "remark", res->remark);
+        }
     } else {
         cJSON_AddNumberToObject(rsp, "interval", 0);
     }

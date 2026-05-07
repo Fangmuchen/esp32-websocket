@@ -17,6 +17,7 @@ typedef struct {
     bool interval_ok;     // true = success
     bool light_ok;        // true = success, false = fail/not-applicable
     bool audio_ok;        // true = success, false = fail/not-applicable
+    char remark[128];     // error description on failure, empty on success
 } command_result_t;
 
 void control_init(void);
