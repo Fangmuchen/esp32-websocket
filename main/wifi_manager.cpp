@@ -93,7 +93,12 @@ bool connect_to_wifi(const char *ssid, const char *pass)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &cfg));
     ESP_ERROR_CHECK(esp_wifi_start());
-    ESP_ERROR_CHECK(esp_wifi_connect());
+    esp_err_t conn_err = esp_wifi_connect();
+    if (conn_err != ESP_OK) {
+        ESP_LOGW(TAG, "Connect failed: %s", esp_err_to_name(conn_err));
+        s_device_state = STATE_BOOT;
+        return false;
+    }
 
     // 等待事件组信号：连接成功或失败（最多等 WIFI_TIMEOUT_MS 毫秒）
     EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
@@ -111,7 +116,7 @@ bool connect_to_wifi(const char *ssid, const char *pass)
 
 // ================================================================
 //  启动 AP 热点模式（配网用）
-//  热点名称 = "ESP32-LED-" + MAC 地址后 3 字节
+//  热点名称 = AP_SSID_PREFIX + "-" + MAC 地址后 3 字节
 //  手机连接这个热点后，打开浏览器会自动弹出配网页面（DNS 劫持）
 // ================================================================
 void start_ap_mode(void)
@@ -123,6 +128,7 @@ void start_ap_mode(void)
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     snprintf(s_ap_ssid, sizeof(s_ap_ssid), "%s-%02X%02X%02X",
              AP_SSID_PREFIX, mac[3], mac[4], mac[5]);
+    ESP_LOGI(TAG, "AP SSID: %s", s_ap_ssid);
 
     // 创建 AP 网络接口
     esp_netif_create_default_wifi_ap();

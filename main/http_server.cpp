@@ -56,7 +56,7 @@ static const char s_html_pre[] =
     ".msg.ok{background:#e8f5e9;color:#2e7d32}"
     ".msg.err{background:#fce4ec;color:#c62828}"
     "</style></head><body>"
-    "<h1>ESP32 LED 配网</h1>"
+    "<h1>桌球丫 配网</h1>"
     "<p class='sub' id='apname'></p><div id='msg'></div>"
     "<div class='card'>"
     "<div class='fg'><label>WiFi 名称</label>"
@@ -91,7 +91,7 @@ static const char s_html_post[] =
     ";b.disabled=false;b.textContent='\\u8fde\\u63a5 WiFi'}}"
     "fetch('/api/status').then(function(r){return r.json()})"
     ".then(function(d){document.getElementById('apname').textContent='AP: '+d.ap})"
-    ".catch(function(){document.getElementById('apname').textContent='AP: ESP32-LED'});"
+    ".catch(function(){document.getElementById('apname').textContent='AP: ZhuOQiuYa'});"
     "</script></body></html>";
 
 // ================================================================
